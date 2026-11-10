@@ -1,8 +1,8 @@
 # gitcheck
 
-**提交前检查暂存区：冲突标记、超大文件、分支命名。**
+**提交前检查暂存区：冲突标记、超大文件、分支命名、提交信息。**
 
-`commit` 之前跑一遍，把那些"推上去才发现"的问题挡在本地。纯标准库，只读，可作 pre-commit 钩子或 CI 步骤。
+`commit` 之前跑一遍，把那些"推上去才发现"的问题挡在本地。纯标准库，只读，可作 pre-commit / commit-msg 钩子或 CI 步骤。
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776ab?logo=python&logoColor=white)](https://www.python.org/)
 [![Zero deps](https://img.shields.io/badge/dependencies-0-brightgreen)](#设计取舍)
@@ -40,11 +40,13 @@ $ gitcheck --max-size 1K --branch-pattern '^feat/.*$'
 | 冲突标记 | 高 | 暂存内容里还有 `<<<<<<<` / `=======` / `>>>>>>>` |
 | 超大文件 | 中 | 暂存 blob 超过 `max_file_size`（默认 1 MiB） |
 | 分支命名 | 中 | 当前分支不匹配 `branch_pattern`（未配置则跳过） |
+| 提交信息 | 高/中 | 仅 `--commit-msg FILE` 时检查：空信息为高，标题超长、缺空行、不匹配格式为中 |
 
 - 只看**暂存区**，不扫描工作区或历史
 - 文件大小取 git blob 的实际字节数，不是磁盘块占用
 - 符号链接、子模块不参与大小检查
 - detached HEAD 时跳过分支检查
+- 提交信息默认只做结构检查；配置 `commit_message_pattern` 才强制标题格式
 
 ## 配置
 
@@ -53,18 +55,22 @@ $ gitcheck --max-size 1K --branch-pattern '^feat/.*$'
 ```json
 {
   "max_file_size": 1048576,
-  "branch_pattern": "^(main|master|develop|(feat|fix|chore|docs|refactor|test)/[a-z0-9._-]+)$"
+  "branch_pattern": "^(main|master|develop|(feat|fix|chore|docs|refactor|test)/[a-z0-9._-]+)$",
+  "commit_message_pattern": "^(feat|fix|docs|chore|refactor|test)(\\([^)]+\\))?: .+",
+  "max_subject_length": 72
 }
 ```
 
 - `max_file_size`：正整数，单位字节
 - `branch_pattern`：Python 正则，**必须匹配整个分支名**（`re.fullmatch`）；写前缀时记得加 `.*`
+- `commit_message_pattern`：可选，提交信息标题的 `fullmatch` 规则；不配置就不检查格式
+- `max_subject_length`：标题长度上限，默认 72 字符
 - 未知字段会报错，避免拼写错误静默生效
 
 ### 用法
 
 ```bash
-gitcheck [PATH] [--config FILE] [--max-size SIZE] [--branch-pattern REGEX] [--format text|json]
+gitcheck [PATH] [--config FILE] [--max-size SIZE] [--branch-pattern REGEX] [--commit-msg FILE] [--format text|json]
 ```
 
 | 参数 | 说明 |
@@ -73,6 +79,7 @@ gitcheck [PATH] [--config FILE] [--max-size SIZE] [--branch-pattern REGEX] [--fo
 | `--config FILE` | 指定配置；默认读取仓库根的 `.gitcheck.json` |
 | `--max-size SIZE` | 覆盖大小上限，支持 `1K` / `1.5M` / `2G` |
 | `--branch-pattern REGEX` | 覆盖分支规则 |
+| `--commit-msg FILE` | 同时检查提交信息文件（commit-msg 钩子传入的路径） |
 | `-f, --format` | `text`（默认）或 `json` |
 | `--version` | 版本号 |
 
@@ -97,16 +104,32 @@ exec gitcheck --max-size 1M
 chmod +x .git/hooks/pre-commit
 ```
 
+### 作为 commit-msg 钩子
+
+`.git/hooks/commit-msg`：
+
+```bash
+#!/bin/sh
+exec gitcheck --commit-msg "$1"
+```
+
+```bash
+chmod +x .git/hooks/commit-msg
+```
+
+commit-msg 阶段暂存区还在，所以 `gitcheck --commit-msg` 会**同时**跑暂存区检查和提交信息检查。两者与 pre-commit 钩子有重叠，但结果一致、不会误报；只想装一个钩子时，用 commit-msg 这个就够了。
+
 ## 设计取舍
 
 - **只检查暂存区**：pre-commit 的职责是拦下"这次要提交的东西"，工作区里的无关改动不该导致失败
 - **调用 git 而不是重写 git**：冲突标记交给 `git diff --cached --check`，文件大小用 `git cat-file --batch-check`，结果与 git 本身一致
 - **默认不强制分支规范**：没有配置就不检查；团队想用再开
+- **提交信息也默认不强制格式**：只查空信息、标题长度和空行，`commit_message_pattern` 由团队自己配；不预设所有人都用 Conventional Commits
 - **零依赖**：钩子应该在任何环境可运行，不该因为装不上依赖而失效
 
 ## 已知边界
 
-- 不检查提交信息格式（pre-commit 阶段还没有信息；commit-msg 钩子是另一个场景）
+- 不改写提交信息，也不校验 GPG 签名或作者身份
 - 不做密钥扫描（交给 `envscan` 这类专门工具）
 - 不检查未跟踪文件、忽略规则或历史提交
 - 分支正则使用 `fullmatch`，不是搜索

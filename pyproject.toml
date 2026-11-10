@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gitcheck"
 version = "0.1.0"
-description = "提交前检查暂存区：冲突标记、超大文件、分支命名"
+description = "提交前检查暂存区：冲突标记、超大文件、分支命名、提交信息"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "eathink" }]
-keywords = ["git", "pre-commit", "lint", "hook", "cli", "devtools"]
+keywords = ["git", "pre-commit", "commit-msg", "lint", "hook", "cli", "devtools"]
 classifiers = [
     "Environment :: Console",
     "Intended Audience :: Developers",

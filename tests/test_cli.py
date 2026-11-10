@@ -83,6 +83,70 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("gitcheck:", err)
 
+    def message_file(self, text: str) -> str:
+        path = self.root / "COMMIT_EDITMSG"
+        path.write_text(text, encoding="utf-8")
+        return str(path)
+
+    def test_commit_msg_clean(self):
+        stage_file(self.root, "a.txt", "hello\n")
+        message = self.message_file("feat: add greeting\n")
+
+        code, out, _ = self.run_cli(str(self.root), "--commit-msg", message)
+
+        self.assertEqual(code, 0)
+        self.assertIn("未发现问题", out)
+
+    def test_commit_msg_pattern_failure(self):
+        (self.root / ".gitcheck.json").write_text(
+            '{"commit_message_pattern": "^feat: .+"}', encoding="utf-8"
+        )
+        stage_file(self.root, "a.txt", "hello\n")
+        message = self.message_file("update stuff\n")
+
+        code, out, _ = self.run_cli(str(self.root), "--commit-msg", message)
+
+        self.assertEqual(code, 1)
+        self.assertIn("commit_message_pattern", out)
+
+    def test_commit_msg_finding_in_json(self):
+        stage_file(self.root, "a.txt", "hello\n")
+        message = self.message_file("")
+
+        code, out, _ = self.run_cli(
+            str(self.root), "--commit-msg", message, "--format", "json"
+        )
+
+        payload = json.loads(out)
+        self.assertEqual(code, 1)
+        self.assertEqual(payload["findings"][0]["kind"], "commit_message")
+
+    def test_commit_msg_and_staged_findings_combine(self):
+        stage_file(
+            self.root,
+            "conflict.txt",
+            "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\n",
+        )
+        message = self.message_file("")
+
+        code, out, _ = self.run_cli(
+            str(self.root), "--commit-msg", message, "--format", "json"
+        )
+
+        kinds = {item["kind"] for item in json.loads(out)["findings"]}
+        self.assertEqual(code, 1)
+        self.assertEqual(kinds, {"conflict_marker", "commit_message"})
+
+    def test_commit_msg_missing_file_returns_two(self):
+        stage_file(self.root, "a.txt", "hello\n")
+
+        code, _, err = self.run_cli(
+            str(self.root), "--commit-msg", str(self.root / "missing-msg")
+        )
+
+        self.assertEqual(code, 2)
+        self.assertIn("无法读取提交信息", err)
+
 
 if __name__ == "__main__":
     unittest.main()

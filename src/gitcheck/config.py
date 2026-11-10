@@ -8,7 +8,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 DEFAULT_MAX_FILE_SIZE = 1024 * 1024
-_ALLOWED_KEYS = frozenset({"max_file_size", "branch_pattern"})
+DEFAULT_MAX_SUBJECT_LENGTH = 72
+_ALLOWED_KEYS = frozenset(
+    {"max_file_size", "branch_pattern", "commit_message_pattern", "max_subject_length"}
+)
 
 
 class ConfigError(ValueError):
@@ -19,13 +22,15 @@ class ConfigError(ValueError):
 class Config:
     max_file_size: int = DEFAULT_MAX_FILE_SIZE
     branch_pattern: str | None = None
+    commit_message_pattern: str | None = None
+    max_subject_length: int = DEFAULT_MAX_SUBJECT_LENGTH
 
 
-def validate_pattern(pattern: str) -> str:
+def validate_pattern(pattern: str, name: str = "branch_pattern") -> str:
     try:
         re.compile(pattern)
     except re.error as exc:
-        raise ConfigError(f"branch_pattern 不是合法正则：{exc}") from exc
+        raise ConfigError(f"{name} 不是合法正则：{exc}") from exc
     return pattern
 
 
@@ -65,4 +70,18 @@ def load_config(path: str | Path | None = None) -> Config:
             raise ConfigError(f"{config_path}: branch_pattern 必须是非空字符串")
         validate_pattern(pattern)
 
-    return Config(max_file_size, pattern)
+    commit_pattern = data.get("commit_message_pattern")
+    if commit_pattern is not None:
+        if not isinstance(commit_pattern, str) or not commit_pattern:
+            raise ConfigError(f"{config_path}: commit_message_pattern 必须是非空字符串")
+        validate_pattern(commit_pattern, "commit_message_pattern")
+
+    max_subject_length = data.get("max_subject_length", DEFAULT_MAX_SUBJECT_LENGTH)
+    if (
+        isinstance(max_subject_length, bool)
+        or not isinstance(max_subject_length, int)
+        or max_subject_length <= 0
+    ):
+        raise ConfigError(f"{config_path}: max_subject_length 必须是正整数")
+
+    return Config(max_file_size, pattern, commit_pattern, max_subject_length)
